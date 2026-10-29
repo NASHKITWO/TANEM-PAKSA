@@ -12,7 +12,6 @@ import '../state/farm_state.dart';
 import 'backpack_panel.dart';
 import 'game_hud.dart';
 import 'history_panel.dart';
-import 'kayu.dart';
 import 'loading_overlay.dart';
 import 'physical_viewport.dart';
 import 'profile_panel.dart';
