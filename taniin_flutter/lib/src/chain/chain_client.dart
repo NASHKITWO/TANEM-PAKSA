@@ -1,0 +1,860 @@
+import 'dart:async';
+import 'dart:convert';
+
+import 'api_http_exception.dart';
+import 'auth_session.dart';
+import 'chain_http_client.dart';
+
+const String sepoliaExplorerTxBase = 'https://sepolia.etherscan.io/tx/';
+
+class ChainConfig {
+  const ChainConfig({
+    this.rpcUrl = 'https://ethereum-sepolia-rpc.publicnode.com',
+    this.coinContractAddress = '',
+    this.itemsContractAddress = '',
+    this.landContractAddress = '',
+    this.gameApiUrl = '',
+    this.multiplayerUrl = '',
+  });
+
+  factory ChainConfig.fromMap(Map<Object?, Object?> map) {
+    return ChainConfig(
+      rpcUrl: _stringValue(
+        map['rpcUrl'],
+        fallback: 'https://ethereum-sepolia-rpc.publicnode.com',
+      ),
+      coinContractAddress: _cleanAddress(map['coinContractAddress']),
+      itemsContractAddress: _cleanAddress(map['itemsContractAddress']),
+      landContractAddress: _cleanAddress(map['landContractAddress']),
+      gameApiUrl: _trimTrailingSlash(_stringValue(map['gameApiUrl'])),
+      multiplayerUrl: _trimTrailingSlash(_stringValue(map['multiplayerUrl'])),
+    );
+  }
+
+  final String rpcUrl;
+  final String coinContractAddress;
+  final String itemsContractAddress;
+  final String landContractAddress;
+  final String gameApiUrl;
+  final String multiplayerUrl;
+
+  bool get hasCoinContract => coinContractAddress.isNotEmpty;
+
+  bool get hasGameApi => gameApiUrl.isNotEmpty;
+
+  bool get hasMultiplayer => multiplayerUrl.isNotEmpty;
+
+  String contractSummary() {
+    final coin = hasCoinContract
+        ? shortAddress(coinContractAddress)
+        : 'TANI belum diset';
+    final items = itemsContractAddress.isEmpty
+        ? 'Items belum diset'
+        : shortAddress(itemsContractAddress);
+    final land = landContractAddress.isEmpty
+        ? 'Land belum diset'
+        : shortAddress(landContractAddress);
+    return 'Coin $coin | Items $items | Land $land';
+  }
+}
+
+class ChainAction {
+  ChainAction({
+    required this.type,
+    required this.plotId,
+    required this.amount,
+    this.seedIndex,
+    this.cropIndex,
+    this.quantity,
+    this.paymentTxHash = '',
+  });
+
+  final String type;
+  final int plotId;
+
+  /// Display amount (crops, coins, seeds); the server recomputes prices itself.
+  final int amount;
+  final int? seedIndex;
+  final int? cropIndex;
+  final int? quantity;
+  final String paymentTxHash;
+
+  String get label {
+    return switch (type) {
+      'BUY_LAND' => 'Mint lahan #$plotId',
+      'SELL_LAND' => 'Jual lahan #$plotId',
+      'PLANT' => 'Tanam lahan #$plotId',
+      'HARVEST' => 'Claim panen $amount',
+      'SELL_CROP' => 'Jual panen $amount',
+      'SWAP_CROP' => 'Swap panen $amount',
+      'SWAP_COIN' => 'Swap coin $amount',
+      'SWAP_TANI_COIN' => 'Deposit TANI ke Game Coin $amount',
+      'SWAP_COIN_ETH' => 'Swap coin ke ETH $amount',
+      'SWAP_ETH_COIN' => 'Isi Game Coin dari ETH $amount',
+      'BUY_SEED' => 'Beli bibit $amount',
+      _ => type,
+    };
+  }
+
+  Map<String, Object> toGameApiJson() {
+    return <String, Object>{
+      'type': type,
+      if (plotId > 0) 'plotId': plotId,
+      'amount': amount,
+      'seedIndex': ?seedIndex,
+      'cropIndex': ?cropIndex,
+      'quantity': ?quantity,
+      if (paymentTxHash.isNotEmpty) 'paymentTxHash': paymentTxHash,
+    };
+  }
+}
+
+class ChainResult {
+  const ChainResult({
+    required this.success,
+    required this.message,
+    this.txHash = '',
+    this.state,
+    this.unauthorized = false,
+  });
+
+  factory ChainResult.ok(
+    String message, {
+    String txHash = '',
+    Map<String, Object?>? state,
+  }) {
+    return ChainResult(
+      success: true,
+      message: message,
+      txHash: txHash.trim(),
+      state: state,
+    );
+  }
+
+  factory ChainResult.error(String message) {
+    return ChainResult(success: false, message: message);
+  }
+
+  factory ChainResult.unauthorized(String message) {
+    return ChainResult(success: false, message: message, unauthorized: true);
+  }
+
+  final bool success;
+  final String message;
+  final String txHash;
+
+  /// Server-side player snapshot returned with the action, when signed in.
+  final Map<String, Object?>? state;
+  final bool unauthorized;
+}
+
+/// Result of loading or importing the signed-in player's server state.
+class ServerPlayerResult {
+  const ServerPlayerResult({
+    required this.success,
+    required this.message,
+    this.state,
+    this.importedGuest = false,
+    this.unauthorized = false,
+  });
+
+  factory ServerPlayerResult.ok(
+    Map<String, Object?> state, {
+    bool importedGuest = false,
+  }) {
+    return ServerPlayerResult(
+      success: true,
+      message: '',
+      state: state,
+      importedGuest: importedGuest,
+    );
+  }
+
+  factory ServerPlayerResult.error(String message, {bool unauthorized = false}) {
+    return ServerPlayerResult(
+      success: false,
+      message: message,
+      unauthorized: unauthorized,
+    );
+  }
+
+  final bool success;
+  final String message;
+  final Map<String, Object?>? state;
+  final bool importedGuest;
+  final bool unauthorized;
+}
+
+class ChainReceiptState {
+  const ChainReceiptState({
+    required this.confirmed,
+    required this.success,
+    required this.message,
+  });
+
+  factory ChainReceiptState.ok(String message) {
+    return ChainReceiptState(confirmed: true, success: true, message: message);
+  }
+
+  factory ChainReceiptState.failed(String message) {
+    return ChainReceiptState(confirmed: true, success: false, message: message);
+  }
+
+  factory ChainReceiptState.pending(String message) {
+    return ChainReceiptState(
+      confirmed: false,
+      success: false,
+      message: message,
+    );
+  }
+
+  final bool confirmed;
+  final bool success;
+  final String message;
+}
+
+class ChainWalletState {
+  const ChainWalletState({
+    required this.success,
+    required this.message,
+    this.coinBalance = 0,
+    this.coinBalanceAvailable = false,
+    this.nativeEth = '',
+    this.nativeWei = '',
+    this.signerAddress = '',
+    this.ethWeiPerCoin = '',
+    this.maxEthPayoutWei = '',
+  });
+
+  factory ChainWalletState.ok({
+    required String message,
+    required int coinBalance,
+    required bool coinBalanceAvailable,
+    required String nativeEth,
+    required String signerAddress,
+    String nativeWei = '',
+    String ethWeiPerCoin = '',
+    String maxEthPayoutWei = '',
+  }) {
+    return ChainWalletState(
+      success: true,
+      message: message,
+      coinBalance: coinBalance,
+      coinBalanceAvailable: coinBalanceAvailable,
+      nativeEth: nativeEth,
+      nativeWei: nativeWei,
+      signerAddress: signerAddress,
+      ethWeiPerCoin: ethWeiPerCoin,
+      maxEthPayoutWei: maxEthPayoutWei,
+    );
+  }
+
+  factory ChainWalletState.error(String message) {
+    return ChainWalletState(success: false, message: message);
+  }
+
+  final bool success;
+  final String message;
+  final int coinBalance;
+  final bool coinBalanceAvailable;
+  final String nativeEth;
+  final String nativeWei;
+  final String signerAddress;
+  final String ethWeiPerCoin;
+  final String maxEthPayoutWei;
+}
+
+class _GameApiHealth {
+  const _GameApiHealth({
+    this.signerAddress = '',
+    this.ethWeiPerCoin = '',
+    this.maxEthPayoutWei = '',
+  });
+
+  final String signerAddress;
+  final String ethWeiPerCoin;
+  final String maxEthPayoutWei;
+}
+
+class ChainClient {
+  ChainClient(this.config);
+
+  static const String sepoliaChainIdHex = '0xaa36a7';
+  static const String sepoliaChainIdLabel = '11155111';
+  static final BigInt _weiPerEth = BigInt.parse('1000000000000000000');
+  static const Duration _timeout = Duration(seconds: 45);
+  static const Duration _receiptTimeout = Duration(seconds: 90);
+  static const Duration _receiptPollDelay = Duration(seconds: 3);
+
+  final ChainConfig config;
+
+  Future<ChainResult> checkSepolia() async {
+    try {
+      final chainId = await _rpcResult(<String, Object>{
+        'jsonrpc': '2.0',
+        'method': 'eth_chainId',
+        'params': <Object>[],
+        'id': 1,
+      });
+      final sepolia = chainId.toLowerCase() == sepoliaChainIdHex;
+      return sepolia
+          ? ChainResult.ok('Sepolia RPC online. Chain ID $sepoliaChainIdLabel.')
+          : ChainResult.error('RPC online, tapi chain ID bukan Sepolia.');
+    } on Object catch (error) {
+      return ChainResult.error('Gagal cek Sepolia: $error');
+    }
+  }
+
+  Future<ChainWalletState> loadWalletState(String walletAddress) async {
+    final wallet = walletAddress.trim();
+    if (!isValidAddress(wallet)) {
+      return ChainWalletState.error('Wallet address tidak valid.');
+    }
+    try {
+      final network = await checkSepolia();
+      if (!network.success) {
+        return ChainWalletState.error(network.message);
+      }
+      final nativeWei = await _ethGetBalance(wallet);
+      final nativeEth = _formatEth(nativeWei);
+      final gameApiHealth = await _loadGameApiHealthOrEmpty();
+      if (config.hasCoinContract) {
+        final rawCoin = await _erc20BalanceOf(
+          config.coinContractAddress,
+          wallet,
+        );
+        final wholeCoin = _clampToGameCoin(rawCoin ~/ _weiPerEth);
+        return ChainWalletState.ok(
+          message: '${network.message} TANI $wholeCoin | ETH $nativeEth',
+          coinBalance: wholeCoin,
+          coinBalanceAvailable: true,
+          nativeEth: nativeEth,
+          nativeWei: nativeWei.toString(),
+          signerAddress: gameApiHealth.signerAddress,
+          ethWeiPerCoin: gameApiHealth.ethWeiPerCoin,
+          maxEthPayoutWei: gameApiHealth.maxEthPayoutWei,
+        );
+      }
+      return ChainWalletState.ok(
+        message:
+            '${network.message} ETH $nativeEth. Contract TANI belum diset, coin masih lokal.',
+        coinBalance: 0,
+        coinBalanceAvailable: false,
+        nativeEth: nativeEth,
+        nativeWei: nativeWei.toString(),
+        signerAddress: gameApiHealth.signerAddress,
+        ethWeiPerCoin: gameApiHealth.ethWeiPerCoin,
+        maxEthPayoutWei: gameApiHealth.maxEthPayoutWei,
+      );
+    } on Object catch (error) {
+      final gameApiHealth = await _loadGameApiHealthOrEmpty();
+      if (config.hasGameApi) {
+        return ChainWalletState.ok(
+          message:
+              'Wallet tersambung. API Sepolia aktif; saldo RPC belum kebaca di device.',
+          coinBalance: 0,
+          coinBalanceAvailable: false,
+          nativeEth: '',
+          nativeWei: '',
+          signerAddress: gameApiHealth.signerAddress,
+          ethWeiPerCoin: gameApiHealth.ethWeiPerCoin,
+          maxEthPayoutWei: gameApiHealth.maxEthPayoutWei,
+        );
+      }
+      return ChainWalletState.error(
+        'Gagal sync wallet: ${_compactError(error)}',
+      );
+    }
+  }
+
+  Future<ChainResult> submitGameAction(
+    AuthSession session,
+    ChainAction action,
+    String idempotencyKey,
+  ) async {
+    if (!config.hasGameApi) {
+      return ChainResult.error('Server game belum diset; aksi disimpan lokal.');
+    }
+    try {
+      final response = await _postGameApi(
+        '/game-actions',
+        jsonEncode(action.toGameApiJson()),
+        headers: <String, String>{
+          ..._authHeaders(session),
+          'Idempotency-Key': idempotencyKey,
+        },
+      );
+      final object = _decodeObject(response);
+      final txHash = extractTransactionHash(response);
+      return ChainResult.ok(
+        txHash.isEmpty
+            ? 'Aksi tersimpan di server.'
+            : 'Transaksi dikirim ke Sepolia: ${shortTransactionHash(txHash)}.',
+        txHash: txHash,
+        state: _mapValue(object['state']),
+      );
+    } on ApiHttpException catch (error) {
+      return error.unauthorized
+          ? ChainResult.unauthorized(error.message)
+          : ChainResult.error(error.message);
+    } on Object catch (error) {
+      return ChainResult.error('Server tidak terjangkau: ${_compactError(error)}');
+    }
+  }
+
+  Future<ServerPlayerResult> fetchPlayer(AuthSession session) {
+    return _playerRequest(
+      () => _getGameApi('/player', headers: _authHeaders(session)),
+    );
+  }
+
+  Future<ServerPlayerResult> importGuest(
+    AuthSession session,
+    Map<String, Object?> guestState,
+  ) {
+    return _playerRequest(
+      () => _postGameApi(
+        '/player/import',
+        jsonEncode(<String, Object?>{'guestState': guestState}),
+        headers: _authHeaders(session),
+      ),
+    );
+  }
+
+  Future<AuthSession?> redeemLoginCode(String code, String verifier) async {
+    if (!config.hasGameApi) {
+      return null;
+    }
+    try {
+      final object = _decodeObject(
+        await _postGameApi(
+          '/auth/code',
+          jsonEncode(<String, String>{'code': code, 'codeVerifier': verifier}),
+        ),
+      );
+      return AuthSession.fromJson(<String, Object?>{
+        'token': object['session'],
+        'wallet': object['wallet'],
+        'expiresAt': object['expiresAt'],
+        'loginMethod': object['loginMethod'],
+      });
+    } on Object {
+      return null;
+    }
+  }
+
+  Future<void> logout(AuthSession session) async {
+    if (!config.hasGameApi) {
+      return;
+    }
+    try {
+      await _postGameApi('/auth/logout', '{}', headers: _authHeaders(session));
+    } on Object {
+      // Local logout still succeeds; the server session expires on its own.
+    }
+  }
+
+  Future<bool> checkGameApi() async {
+    if (!config.hasGameApi) {
+      return false;
+    }
+    try {
+      final object = _decodeObject(await _getGameApi('/health'));
+      return object['ok'] == true;
+    } on Object {
+      return false;
+    }
+  }
+
+  Future<ServerPlayerResult> _playerRequest(
+    Future<String> Function() request,
+  ) async {
+    if (!config.hasGameApi) {
+      return ServerPlayerResult.error('Server game belum diset.');
+    }
+    try {
+      final object = _decodeObject(await request());
+      final state = _mapValue(object['state']);
+      if (state == null) {
+        return ServerPlayerResult.error('Server tidak mengirim data pemain.');
+      }
+      return ServerPlayerResult.ok(
+        state,
+        importedGuest: object['importedGuest'] == true,
+      );
+    } on ApiHttpException catch (error) {
+      return ServerPlayerResult.error(
+        error.message,
+        unauthorized: error.unauthorized,
+      );
+    } on Object catch (error) {
+      return ServerPlayerResult.error(
+        'Server tidak terjangkau: ${_compactError(error)}',
+      );
+    }
+  }
+
+  static Map<String, String> _authHeaders(AuthSession session) {
+    return <String, String>{'Authorization': 'Bearer ${session.token}'};
+  }
+
+  static Map<String, Object?> _decodeObject(String response) {
+    final decoded = jsonDecode(response);
+    return decoded is Map<String, dynamic> ? decoded : <String, Object?>{};
+  }
+
+  static Map<String, Object?>? _mapValue(Object? value) {
+    return value is Map ? Map<String, Object?>.from(value) : null;
+  }
+
+  Future<ChainReceiptState> waitForTransaction(String txHash) async {
+    final hash = txHash.trim();
+    if (!isValidTransactionHash(hash)) {
+      return ChainReceiptState.failed('Tx hash Sepolia tidak valid.');
+    }
+    final deadline = DateTime.now().add(_receiptTimeout);
+    Object? lastError;
+    while (DateTime.now().isBefore(deadline)) {
+      try {
+        final receipt = await _transactionReceipt(hash);
+        if (receipt != null) {
+          final status = receipt['status']?.toString().toLowerCase() ?? '';
+          if (status == '0x1') {
+            return ChainReceiptState.ok(
+              'Transaksi Sepolia confirmed: ${shortTransactionHash(hash)}.',
+            );
+          }
+          if (status == '0x0') {
+            return ChainReceiptState.failed(
+              'Transaksi Sepolia gagal: ${shortTransactionHash(hash)}.',
+            );
+          }
+          return ChainReceiptState.failed(
+            'Receipt transaksi Sepolia tidak memiliki status yang valid: ${shortTransactionHash(hash)}.',
+          );
+        }
+      } on Object catch (error) {
+        lastError = error;
+      }
+      await Future<void>.delayed(_receiptPollDelay);
+    }
+    final suffix = lastError == null ? '' : ' ${_compactError(lastError)}';
+    return ChainReceiptState.pending(
+      'Transaksi ${shortTransactionHash(hash)} belum confirmed.$suffix',
+    );
+  }
+
+  Future<String> _rpcResult(Map<String, Object> payload) async {
+    final result = await _rpcRawResult(payload);
+    return result?.toString() ?? '';
+  }
+
+  Future<Object?> _rpcRawResult(Map<String, Object> payload) async {
+    final response = await _postJson(config.rpcUrl, jsonEncode(payload));
+    final object = jsonDecode(response) as Map<String, dynamic>;
+    final error = object['error'];
+    if (error is Map<String, dynamic>) {
+      throw StateError(error['message']?.toString() ?? error.toString());
+    }
+    return object['result'];
+  }
+
+  Future<BigInt> _ethGetBalance(String walletAddress) async {
+    final result = await _rpcResult(<String, Object>{
+      'jsonrpc': '2.0',
+      'method': 'eth_getBalance',
+      'params': <Object>[walletAddress, 'latest'],
+      'id': 2,
+    });
+    return _hexToBigInt(result);
+  }
+
+  Future<Map<String, dynamic>?> _transactionReceipt(String txHash) async {
+    final result = await _rpcRawResult(<String, Object>{
+      'jsonrpc': '2.0',
+      'method': 'eth_getTransactionReceipt',
+      'params': <Object>[txHash],
+      'id': 4,
+    });
+    if (result is Map<String, dynamic>) {
+      return result;
+    }
+    return null;
+  }
+
+  Future<BigInt> _erc20BalanceOf(
+    String contractAddress,
+    String walletAddress,
+  ) async {
+    final result = await _rpcResult(<String, Object>{
+      'jsonrpc': '2.0',
+      'method': 'eth_call',
+      'params': <Object>[
+        <String, String>{
+          'to': contractAddress,
+          'data': _erc20BalanceOfData(walletAddress),
+        },
+        'latest',
+      ],
+      'id': 3,
+    });
+    return _hexToBigInt(result);
+  }
+
+  Future<_GameApiHealth> _loadGameApiHealthOrEmpty() async {
+    try {
+      return await _loadGameApiHealth();
+    } on Object {
+      return const _GameApiHealth();
+    }
+  }
+
+  Future<_GameApiHealth> _loadGameApiHealth() async {
+    if (!config.hasGameApi) {
+      return const _GameApiHealth();
+    }
+    final response = await _getGameApi('/health');
+    final object = jsonDecode(response) as Map<String, dynamic>;
+    return _GameApiHealth(
+      signerAddress: _cleanAddress(object['signer']),
+      ethWeiPerCoin: _decimalStringValue(object['ethWeiPerCoin']),
+      maxEthPayoutWei: _decimalStringValue(object['maxEthPayoutWei']),
+    );
+  }
+
+  Future<String> _postGameApi(
+    String path,
+    String payload, {
+    Map<String, String> headers = const <String, String>{},
+  }) async {
+    Object? lastError;
+    for (final baseUrl in _gameApiUrlCandidates()) {
+      try {
+        return await postJson(
+          '$baseUrl$path',
+          payload,
+          timeout: _timeout,
+          headers: headers,
+        );
+      } on ApiHttpException {
+        rethrow;
+      } on Object catch (error) {
+        lastError = error;
+      }
+    }
+    throw StateError(lastError?.toString() ?? 'Game API tidak valid.');
+  }
+
+  Future<String> _getGameApi(
+    String path, {
+    Map<String, String> headers = const <String, String>{},
+  }) async {
+    Object? lastError;
+    for (final baseUrl in _gameApiUrlCandidates()) {
+      try {
+        return await getJson('$baseUrl$path', timeout: _timeout, headers: headers);
+      } on ApiHttpException {
+        rethrow;
+      } on Object catch (error) {
+        lastError = error;
+      }
+    }
+    throw StateError(lastError?.toString() ?? 'Game API tidak valid.');
+  }
+
+  List<String> _gameApiUrlCandidates() {
+    final fallback = _localGameApiFallback(config.gameApiUrl);
+    if (fallback.isEmpty || fallback == config.gameApiUrl) {
+      return <String>[config.gameApiUrl];
+    }
+    return <String>[config.gameApiUrl, fallback];
+  }
+
+  static Future<String> _postJson(String url, String payload) async {
+    return postJson(url, payload, timeout: _timeout);
+  }
+
+  static String _erc20BalanceOfData(String walletAddress) {
+    final clean = walletAddress.substring(2).toLowerCase();
+    return '0x70a08231${clean.padLeft(64, '0')}';
+  }
+
+  static BigInt _hexToBigInt(String value) {
+    final cleaned = value.trim();
+    if (!cleaned.startsWith('0x') || cleaned.length <= 2) {
+      return BigInt.zero;
+    }
+    return BigInt.parse(cleaned.substring(2), radix: 16);
+  }
+
+  static String _formatEth(BigInt wei) {
+    final whole = wei ~/ _weiPerEth;
+    final fraction = wei.remainder(_weiPerEth);
+    if (fraction == BigInt.zero) {
+      return whole.toString();
+    }
+    final fractionText = fraction.toString().padLeft(18, '0').substring(0, 12);
+    final compactFraction = fractionText.replaceFirst(RegExp(r'0+$'), '');
+    return compactFraction.isEmpty
+        ? whole.toString()
+        : '$whole.$compactFraction';
+  }
+
+  static int _clampToGameCoin(BigInt value) {
+    if (value < BigInt.zero) {
+      return 0;
+    }
+    final max = BigInt.from(0x7fffffff);
+    if (value > max) {
+      return 0x7fffffff;
+    }
+    return value.toInt();
+  }
+}
+
+bool isValidAddress(String address) {
+  return RegExp(r'^0x[0-9a-fA-F]{40}$').hasMatch(address.trim());
+}
+
+bool isValidTransactionHash(String hash) {
+  return RegExp(r'^0x[0-9a-fA-F]{64}$').hasMatch(hash.trim());
+}
+
+String shortAddress(String address) {
+  final cleaned = address.trim();
+  if (cleaned.length < 12) {
+    return cleaned;
+  }
+  return '${cleaned.substring(0, 6)}...${cleaned.substring(cleaned.length - 4)}';
+}
+
+String shortTransactionHash(String hash) {
+  final cleaned = hash.trim();
+  if (!isValidTransactionHash(cleaned)) {
+    return '';
+  }
+  return '${cleaned.substring(0, 10)}...${cleaned.substring(cleaned.length - 6)}';
+}
+
+String transactionUrl(String hash) => '$sepoliaExplorerTxBase$hash';
+
+String extractTransactionHash(String response) {
+  final cleaned = response.trim();
+  if (isValidTransactionHash(cleaned)) {
+    return cleaned;
+  }
+  if (cleaned.isEmpty) {
+    return '';
+  }
+  try {
+    final object = jsonDecode(cleaned);
+    if (object is Map<String, dynamic>) {
+      final direct = _firstValidTransactionHash(<Object?>[
+        object['txHash'],
+        object['transactionHash'],
+        object['hash'],
+        object['result'],
+      ]);
+      if (direct.isNotEmpty) {
+        return direct;
+      }
+      for (final key in <String>['data', 'result']) {
+        final nested = object[key];
+        if (nested is Map<String, dynamic>) {
+          final nestedHash = _firstValidTransactionHash(<Object?>[
+            nested['txHash'],
+            nested['transactionHash'],
+            nested['hash'],
+          ]);
+          if (nestedHash.isNotEmpty) {
+            return nestedHash;
+          }
+        }
+      }
+      final hashes = object['txHashes'];
+      if (hashes is List<Object?>) {
+        final arrayHash = _firstValidTransactionHash(hashes);
+        if (arrayHash.isNotEmpty) {
+          return arrayHash;
+        }
+      }
+    }
+  } on Object {
+    return '';
+  }
+  return '';
+}
+
+String extractApiError(String response) {
+  final cleaned = response.trim();
+  if (cleaned.isEmpty) {
+    return '';
+  }
+  try {
+    final object = jsonDecode(cleaned);
+    if (object is! Map<String, dynamic>) {
+      return '';
+    }
+    if (object['ok'] == true || !object.containsKey('ok')) {
+      return '';
+    }
+    final error = object['error']?.toString().trim() ?? '';
+    if (error.isNotEmpty) {
+      return error;
+    }
+    return object['message']?.toString().trim() ?? '';
+  } on Object {
+    return '';
+  }
+}
+
+String _firstValidTransactionHash(Iterable<Object?> values) {
+  for (final value in values) {
+    final cleaned = value?.toString().trim() ?? '';
+    if (isValidTransactionHash(cleaned)) {
+      return cleaned;
+    }
+  }
+  return '';
+}
+
+String _stringValue(Object? value, {String fallback = ''}) {
+  final cleaned = value?.toString().trim() ?? '';
+  return cleaned.isEmpty ? fallback : cleaned;
+}
+
+String _decimalStringValue(Object? value) {
+  final cleaned = _stringValue(value);
+  return RegExp(r'^\d+$').hasMatch(cleaned) ? cleaned : '';
+}
+
+String _cleanAddress(Object? value) {
+  final cleaned = _stringValue(value);
+  return isValidAddress(cleaned) ? cleaned : '';
+}
+
+String _trimTrailingSlash(String value) {
+  var cleaned = value.trim();
+  while (cleaned.endsWith('/')) {
+    cleaned = cleaned.substring(0, cleaned.length - 1);
+  }
+  return cleaned;
+}
+
+String _compactError(Object error) {
+  final text = error.toString().replaceFirst('StateError: ', '').trim();
+  return text.length > 72 ? '${text.substring(0, 69)}...' : text;
+}
+
+String _localGameApiFallback(String url) {
+  if (url.startsWith('http://127.0.0.1:')) {
+    return 'http://10.0.2.2:${url.substring('http://127.0.0.1:'.length)}';
+  }
+  if (url.startsWith('http://localhost:')) {
+    return 'http://10.0.2.2:${url.substring('http://localhost:'.length)}';
+  }
+  if (url.startsWith('http://10.0.2.2:')) {
+    return 'http://127.0.0.1:${url.substring('http://10.0.2.2:'.length)}';
+  }
+  return '';
+}

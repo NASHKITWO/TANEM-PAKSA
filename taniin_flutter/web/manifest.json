@@ -1,0 +1,10 @@
+{
+  "name": "Tanem Paksa",
+  "short_name": "Tanem Paksa",
+  "start_url": ".",
+  "display": "fullscreen",
+  "background_color": "#17351f",
+  "theme_color": "#17351f",
+  "description": "Tanem Paksa farming game prototype with Sepolia Web3 hooks.",
+  "orientation": "landscape"
+}

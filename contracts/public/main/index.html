@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(function(registrations) {
+        registrations.forEach(function(registration) { registration.unregister(); });
+      });
+    }
+  </script>
+  <base href="/main/">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="Taniin farming game prototype with Sepolia Web3 hooks.">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Taniin">
+  <meta name="theme-color" content="#17351f">
+
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/png" href="assets/assets/images/iconaplikasi.png">
+  <link rel="preload" as="image" href="assets/assets/images/loadingscreen.jpg" fetchpriority="high">
+  <link rel="preload" as="image" href="assets/assets/images/iconaplikasi.png" fetchpriority="high">
+  <link rel="preload" as="image" href="assets/assets/images/spring_crops.png">
+  <link rel="preload" as="font" type="font/ttf" href="assets/assets/fonts/PixelifySans.ttf" crossorigin>
+  <title>Taniin</title>
+
+  <style>
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #17351f;
+      color: #fff0cf;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    body {
+      overscroll-behavior: none;
+      touch-action: none;
+    }
+
+    @font-face {
+      font-family: "Pixelify";
+      src: url("assets/assets/fonts/PixelifySans.ttf") format("truetype");
+      font-display: swap;
+    }
+
+    /* Boot card: the same wood card the Flutter loading screen draws, kept on
+       top of the Flutter view until that screen's images are decoded. */
+    .boot {
+      position: fixed;
+      inset: 0;
+      z-index: 10;
+      display: grid;
+      place-items: center;
+      padding: 16px;
+      background:
+        linear-gradient(rgba(16, 28, 20, 0.25), rgba(16, 28, 20, 0.15) 45%, rgba(16, 28, 20, 0.75)),
+        url("assets/assets/images/loadingscreen.jpg") center / cover no-repeat,
+        #275d35;
+      image-rendering: pixelated;
+      transition: opacity 0.4s ease;
+    }
+
+    .boot--keluar {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .boot__card {
+      box-sizing: border-box;
+      width: min(660px, 100%);
+      padding: 26px;
+      background: #a34a1c;
+      border: 5px solid #4a1d08;
+      border-radius: 18px;
+      box-shadow: inset 0 0 0 3px #e07b20, 0 10px 0 #4a1d08;
+      image-rendering: auto;
+    }
+
+    .boot__head {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+    }
+
+    .boot__icon {
+      width: 66px;
+      height: 66px;
+      border: 3px solid #4a1d08;
+      border-radius: 14px;
+      background: #f6b53c;
+    }
+
+    .boot__title {
+      font: 700 54px/1.1 "Pixelify", monospace;
+      color: #ffde19;
+      text-shadow: 0 4px 0 #4a1d08;
+    }
+
+    .boot__sub {
+      margin-top: 4px;
+      font-size: 18px;
+      font-weight: 600;
+      color: #f3c99a;
+    }
+
+    .boot__soil {
+      display: flex;
+      justify-content: space-around;
+      align-items: flex-end;
+      height: 72px;
+      margin: 18px 0 16px;
+      padding-bottom: 12px;
+      box-sizing: border-box;
+      background:
+        linear-gradient(#8a5530 0 6px, transparent 6px),
+        repeating-linear-gradient(transparent 0 15px, #552c14 15px 18px),
+        #6b3a1e;
+      border: 3px solid #4a1d08;
+      border-radius: 10px;
+    }
+
+    .boot__soil i {
+      width: 48px;
+      height: 48px;
+      background: url("assets/assets/images/spring_crops.png") 0 0 / 672px 384px no-repeat;
+      image-rendering: pixelated;
+    }
+
+    .boot__soil i:nth-child(4n + 1) { background-position: 0 -48px; }
+    .boot__soil i:nth-child(4n + 2) { background-position: 0 -144px; }
+    .boot__soil i:nth-child(4n + 3) { background-position: 0 -240px; }
+    .boot__soil i:nth-child(4n + 4) { background-position: 0 -336px; }
+
+    .boot__bar {
+      height: 26px;
+      box-sizing: border-box;
+      border: 3px solid #25140a;
+      border-radius: 6px;
+      background: #4a1d08;
+      overflow: hidden;
+    }
+
+    .boot__bar span {
+      display: block;
+      width: 35%;
+      height: 100%;
+      background:
+        linear-gradient(rgba(255, 255, 255, 0.33) 0 4px, transparent 4px),
+        repeating-linear-gradient(90deg, #86e276 0 10px, #2f7d45 10px 14px);
+      animation: boot-jalan 1.2s steps(10) infinite;
+    }
+
+    .boot__label {
+      margin-top: 10px;
+      font-size: 17px;
+      font-weight: 600;
+      color: #fff0d4;
+    }
+
+    @keyframes boot-jalan {
+      from { transform: translateX(-100%); }
+      to { transform: translateX(290%); }
+    }
+
+    @media (max-width: 480px) {
+      .boot__card { padding: 18px; }
+      .boot__head { gap: 12px; }
+      .boot__icon { width: 52px; height: 52px; }
+      .boot__title { font-size: 40px; }
+      .boot__sub { font-size: 15px; }
+      .boot__soil { height: 56px; padding-bottom: 9px; }
+      .boot__soil i {
+        width: 32px;
+        height: 32px;
+        background-size: 448px 256px;
+      }
+      .boot__soil i:nth-child(4n + 1) { background-position: 0 -32px; }
+      .boot__soil i:nth-child(4n + 2) { background-position: 0 -96px; }
+      .boot__soil i:nth-child(4n + 3) { background-position: 0 -160px; }
+      .boot__soil i:nth-child(4n + 4) { background-position: 0 -224px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .boot__bar span { animation: none; width: 100%; }
+      .boot { transition: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="boot" role="status" aria-label="Memuat Taniin">
+    <div class="boot__card">
+      <div class="boot__head">
+        <img class="boot__icon" src="assets/assets/images/iconaplikasi.png" width="66" height="66" alt="" fetchpriority="high">
+        <div>
+          <div class="boot__title">Taniin</div>
+          <div class="boot__sub">Game bertani on-chain</div>
+        </div>
+      </div>
+      <div class="boot__soil" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="boot__bar"><span></span></div>
+      <div class="boot__label">Memuat game…</div>
+    </div>
+  </div>
+  <script>
+    window.taniinLastEthereumError = '';
+
+    window.taniinHasEthereumProvider = function () {
+      return false;
+    };
+
+    window.taniinEthereumError = function () {
+      return window.taniinLastEthereumError || '';
+    };
+
+    window.taniinRequestEthereumAccount = async function () {
+      window.taniinLastEthereumError = '';
+      const ethereum = window.ethereum;
+      if (!ethereum || typeof ethereum.request !== 'function') {
+        window.taniinLastEthereumError = 'Wallet browser Ethereum tidak terdeteksi di browser ini.';
+        return '';
+      }
+
+      try {
+        const accounts = await ethereum.request({ method: 'eth_requestAccounts' });
+        const account = accounts && accounts[0] ? String(accounts[0]) : '';
+        if (!account) {
+          window.taniinLastEthereumError = 'Wallet tidak mengirim public address.';
+          return '';
+        }
+
+        try {
+          const chainId = await ethereum.request({ method: 'eth_chainId' });
+          if (chainId !== '0xaa36a7') {
+            await ethereum.request({
+              method: 'wallet_switchEthereumChain',
+              params: [{ chainId: '0xaa36a7' }],
+            });
+          }
+        } catch (switchError) {
+          if (switchError && switchError.code === 4902) {
+            try {
+              await ethereum.request({
+                method: 'wallet_addEthereumChain',
+                params: [{
+                  chainId: '0xaa36a7',
+                  chainName: 'Sepolia',
+                  nativeCurrency: { name: 'Sepolia Ether', symbol: 'ETH', decimals: 18 },
+                  rpcUrls: ['https://ethereum-sepolia-rpc.publicnode.com'],
+                  blockExplorerUrls: ['https://sepolia.etherscan.io'],
+                }],
+              });
+            } catch (_) {}
+          }
+        }
+
+        return account;
+      } catch (error) {
+        window.taniinLastEthereumError = error && error.message
+          ? error.message
+          : 'Connect wallet dibatalkan.';
+        return '';
+      }
+    };
+
+    window.taniinSendEthereum = async function (from, to, valueHex) {
+      window.taniinLastEthereumError = '';
+      try {
+        return String(await window.ethereum.request({
+          method: 'eth_sendTransaction',
+          params: [{ from: from, to: to, value: valueHex }],
+        }));
+      } catch (error) {
+        window.taniinLastEthereumError = error && error.message
+          ? error.message
+          : 'Transfer ETH dibatalkan.';
+        return '';
+      }
+    };
+  </script>
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>

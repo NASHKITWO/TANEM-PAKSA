@@ -1,0 +1,566 @@
+import 'dart:math' as math;
+
+import 'package:flutter/material.dart';
+
+import '../chain/chain_client.dart';
+import '../chain/platform_bridge.dart';
+import '../state/farm_state.dart';
+import 'pixel_panel.dart';
+
+class WalletPanel extends StatefulWidget {
+  const WalletPanel({
+    required this.farmState,
+    required this.onClose,
+    this.showCloseButton = true,
+    this.prominent = false,
+    this.showFacts = true,
+    this.title,
+    this.subtitle,
+    super.key,
+  });
+
+  final FarmStateController farmState;
+  final VoidCallback onClose;
+  final bool showCloseButton;
+  final bool prominent;
+  final bool showFacts;
+  final String? title;
+  final String? subtitle;
+
+  @override
+  State<WalletPanel> createState() => _WalletPanelState();
+}
+
+class _WalletPanelState extends State<WalletPanel> {
+  FarmStateController get farmState => widget.farmState;
+
+  @override
+  Widget build(BuildContext context) {
+    final media = MediaQuery.sizeOf(context);
+    final compact = media.width < 560 || media.height < 720;
+    final contentProminent = widget.prominent && !compact;
+    final title =
+        widget.title ??
+        (farmState.isLoggedIn ? 'Akun Tanem Paksa' : 'Masuk');
+    final subtitle =
+        widget.subtitle ??
+        (farmState.walletIsBackendSigner
+            ? 'Wallet signer backend'
+            : farmState.isLoggedIn
+            ? 'Wallet Sepolia ${shortAddress(farmState.walletAddress)}'
+            : 'Simpan panen di Sepolia');
+    final margin = compact ? 28.0 : (widget.prominent ? 56.0 : 72.0);
+    final maxWidth = math.min(
+      math.max(292.0, media.width - margin),
+      widget.prominent ? 680.0 : 780.0,
+    );
+    final maxHeight = math.min(
+      math.max(420.0, media.height - margin),
+      widget.prominent ? 720.0 : 660.0,
+    );
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxWidth: maxWidth, maxHeight: maxHeight),
+      child: PixelPanel(
+        color: const Color(0xFFA34A1C),
+        borderColor: const Color(0xFF633010),
+        padding: EdgeInsets.zero,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _WalletPanelHeader(
+              title: title,
+              subtitle: subtitle,
+              connected: farmState.isLoggedIn,
+              backendSigner: farmState.walletIsBackendSigner,
+              prominent: contentProminent,
+              compact: compact,
+              showCloseButton: widget.showCloseButton,
+              onClose: widget.onClose,
+            ),
+            Flexible(
+              child: SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(
+                  compact ? 14 : 30,
+                  compact ? 14 : 26,
+                  compact ? 14 : 30,
+                  compact ? 16 : 32,
+                ),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF7A2D0E),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: const Color(0xFFE07B20),
+                      width: compact ? 4 : 5,
+                    ),
+                  ),
+                  child: Padding(
+                    padding: EdgeInsets.all(compact ? 14 : 18),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _StatusBox(
+                          text: farmState.chainStatus,
+                          connected: farmState.isLoggedIn,
+                          prominent: contentProminent,
+                        ),
+                        SizedBox(height: contentProminent ? 24 : 14),
+                        if (!farmState.isLoggedIn) ...[
+                          _WalletActionButton(
+                            label: 'Masuk dengan Privy',
+                            icon: Icons.login,
+                            color: const Color(0xFFD68127),
+                            prominent: contentProminent,
+                            onPressed: farmState.canLogin ? _openLogin : null,
+                          ),
+                          const SizedBox(height: 14),
+                          Text(
+                            farmState.canLogin
+                                ? 'Masuk pakai email, Google, atau wallet. Wallet Sepolia dibuat otomatis, '
+                                      'dan progres tamumu ikut dibawa.'
+                                : 'Server login belum tersedia di build ini. Kamu tetap bisa main sebagai tamu.',
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context).textTheme.bodyMedium
+                                ?.copyWith(color: const Color(0xFFE9C692)),
+                          ),
+                        ] else ...[
+                          _AccountRow(farmState: farmState),
+                          const SizedBox(height: 14),
+                          Wrap(
+                            spacing: 12,
+                            runSpacing: 10,
+                            alignment: WrapAlignment.center,
+                            children: [
+                              _WalletActionButton(
+                                label: 'Sync Saldo',
+                                icon: Icons.refresh,
+                                color: const Color(0xFF2C8356),
+                                prominent: contentProminent,
+                                onPressed: _syncBalance,
+                              ),
+                              _WalletActionButton(
+                                label: 'Etherscan',
+                                icon: Icons.open_in_new,
+                                color: const Color(0xFF496A8A),
+                                prominent: contentProminent,
+                                onPressed: _openExplorer,
+                              ),
+                              _WalletActionButton(
+                                label: 'Keluar',
+                                icon: Icons.logout,
+                                color: const Color(0xFF8B2F23),
+                                prominent: contentProminent,
+                                onPressed: _logout,
+                              ),
+                            ],
+                          ),
+                        ],
+                        if (widget.showFacts) ...[
+                          const SizedBox(height: 16),
+                          _WalletFacts(farmState: farmState),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openLogin() async {
+    farmState.playClick();
+    final url = await farmState.prepareLoginUrl();
+    final opened = url.isNotEmpty && await PlatformBridge.openUrl(url, sameTab: true);
+    farmState.showMessage(
+      opened ? 'Membuka halaman masuk...' : 'Halaman masuk tidak bisa dibuka.',
+      success: opened,
+    );
+    if (opened && widget.showCloseButton) {
+      widget.onClose();
+    }
+  }
+
+  Future<void> _logout() async {
+    await farmState.logout();
+    if (widget.showCloseButton) {
+      widget.onClose();
+    }
+  }
+
+  Future<void> _syncBalance() async {
+    await farmState.refreshWalletState(revealMessage: true);
+  }
+
+  Future<void> _openExplorer() async {
+    final opened = await PlatformBridge.openUrl(
+      'https://sepolia.etherscan.io/address/${farmState.walletAddress}',
+    );
+    if (!opened) {
+      farmState.showMessage('Tidak bisa membuka Etherscan.', success: false);
+    }
+  }
+}
+
+class _WalletPanelHeader extends StatelessWidget {
+  const _WalletPanelHeader({
+    required this.title,
+    required this.subtitle,
+    required this.connected,
+    required this.backendSigner,
+    required this.prominent,
+    required this.compact,
+    required this.showCloseButton,
+    required this.onClose,
+  });
+
+  final String title;
+  final String subtitle;
+  final bool connected;
+  final bool backendSigner;
+  final bool prominent;
+  final bool compact;
+  final bool showCloseButton;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: BoxConstraints(minHeight: compact ? 76 : 96),
+      padding: EdgeInsets.fromLTRB(
+        compact ? 16 : 24,
+        compact ? 14 : 18,
+        compact ? 14 : 22,
+        compact ? 14 : 18,
+      ),
+      decoration: const BoxDecoration(
+        color: Color(0xFFA94F1E),
+        border: Border(bottom: BorderSide(color: Color(0xFF763513), width: 5)),
+      ),
+      child: Row(
+        children: [
+          const _HeaderDot(),
+          SizedBox(width: compact ? 12 : 20),
+          _WalletBadge(connected: connected, prominent: prominent),
+          SizedBox(width: compact ? 12 : 18),
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    color: const Color(0xFFFFDE19),
+                    fontSize: prominent ? 42 : (compact ? 25 : 34),
+                    height: 1.02,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  maxLines: compact ? 2 : 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: backendSigner
+                        ? const Color(0xFFFFE184)
+                        : const Color(0xFFA9EFA7),
+                    fontSize: prominent ? 20 : (compact ? 12 : 16),
+                    height: 1.15,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (showCloseButton) ...[
+            SizedBox(width: compact ? 10 : 16),
+            PanelCloseButton(
+              onPressed: onClose,
+              dimension: compact ? 46 : 62,
+              iconSize: compact ? 30 : 44,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _HeaderDot extends StatelessWidget {
+  const _HeaderDot();
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFDE19),
+        borderRadius: BorderRadius.circular(3),
+      ),
+      child: const SizedBox.square(dimension: 10),
+    );
+  }
+}
+
+class _WalletBadge extends StatelessWidget {
+  const _WalletBadge({required this.connected, required this.prominent});
+
+  final bool connected;
+  final bool prominent;
+
+  @override
+  Widget build(BuildContext context) {
+    final dimension = prominent ? 64.0 : 46.0;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: connected ? const Color(0xFF70E084) : const Color(0xFFFFD51C),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFF4C230B), width: 3),
+      ),
+      child: SizedBox.square(
+        dimension: dimension,
+        child: Center(
+          child: Icon(
+            connected ? Icons.check : Icons.account_balance_wallet,
+            color: const Color(0xFF3A2614),
+            size: prominent ? 37 : 27,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _StatusBox extends StatelessWidget {
+  const _StatusBox({
+    required this.text,
+    required this.connected,
+    required this.prominent,
+  });
+
+  final String text;
+  final bool connected;
+  final bool prominent;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: connected ? const Color(0xFF285A3D) : const Color(0xFF8E411B),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFF5C2A0C), width: 4),
+      ),
+      child: Padding(
+        padding: EdgeInsets.symmetric(
+          horizontal: prominent ? 24 : 18,
+          vertical: prominent ? 20 : 15,
+        ),
+        child: Text(
+          text,
+          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+            color: const Color(0xFFFFF0D4),
+            fontSize: prominent ? 26 : 20,
+            height: 1.15,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AccountRow extends StatelessWidget {
+  const _AccountRow({required this.farmState});
+
+  final FarmStateController farmState;
+
+  @override
+  Widget build(BuildContext context) {
+    final method = switch (farmState.session?.loginMethod) {
+      'google' => 'Google',
+      'email' => 'Email',
+      'wallet' => 'Wallet',
+      _ => 'Privy',
+    };
+    return Semantics(
+      label: 'Masuk lewat $method dengan wallet ${farmState.walletAddress}',
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.verified_user, color: Color(0xFF9BE58F), size: 22),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              shortAddress(farmState.walletAddress),
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                color: const Color(0xFFFFF0D4),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            'via $method',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: const Color(0xFFE9C692),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _WalletFacts extends StatelessWidget {
+  const _WalletFacts({required this.farmState});
+
+  final FarmStateController farmState;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
+      children: [
+        _FactChip(
+          icon: Icons.account_balance_wallet,
+          label: 'Wallet',
+          value: farmState.isLoggedIn
+              ? shortAddress(farmState.walletAddress)
+              : 'tamu',
+        ),
+        _FactChip(
+          icon: Icons.bolt,
+          label: 'ETH',
+          value: farmState.walletNativeBalance.isEmpty
+              ? '-'
+              : farmState.walletNativeBalance,
+        ),
+        _FactChip(
+          icon: Icons.token,
+          label: 'TANI',
+          value: farmState.walletTaniBalanceAvailable
+              ? '${farmState.tani}'
+              : '-',
+        ),
+      ],
+    );
+  }
+}
+
+class _FactChip extends StatelessWidget {
+  const _FactChip({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xFF793A17),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFFFB23F), width: 3),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: const Color(0xFFFFDE19), size: 24),
+            const SizedBox(width: 8),
+            Text(
+              '$label: ',
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                color: const Color(0xFFE9C692),
+                fontSize: 15,
+              ),
+            ),
+            Text(
+              value,
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                color: const Color(0xFFFFF0D4),
+                fontSize: 15,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _WalletActionButton extends StatelessWidget {
+  const _WalletActionButton({
+    required this.label,
+    required this.icon,
+    required this.color,
+    required this.onPressed,
+    this.prominent = false,
+  });
+
+  final String label;
+  final IconData icon;
+  final Color color;
+  final VoidCallback? onPressed;
+  final bool prominent;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onPressed != null;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onPressed,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: enabled ? color : const Color(0xFF5F4A38),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: enabled ? const Color(0xFFFFB23F) : const Color(0xFF8B6A53),
+            width: 3,
+          ),
+        ),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: prominent ? 82 : 60),
+          child: Center(
+            widthFactor: 1,
+            child: Padding(
+              padding: EdgeInsets.symmetric(
+                horizontal: prominent ? 25 : 18,
+                vertical: prominent ? 20 : 14,
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    icon,
+                    color: const Color(0xFFFFF0D4),
+                    size: prominent ? 34 : 26,
+                  ),
+                  SizedBox(width: prominent ? 13 : 10),
+                  Text(
+                    label,
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      color: const Color(0xFFFFF0D4),
+                      fontSize: prominent ? 23 : 18,
+                      height: 1.0,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
