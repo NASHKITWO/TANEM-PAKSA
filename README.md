@@ -20,19 +20,6 @@ Tanem Paksa is founded and developed by **Muhammad Ikhsan**, Teknik Informatika,
 - On-chain records on Sepolia: land as ERC-721, seeds and crops as ERC-1155, and the TANI ERC-20 token. Game Coin can be swapped to TANI or Sepolia ETH, within daily limits.
 - In-game status strip (account, Sepolia, server, multiplayer, AI) and a transaction history that links to Etherscan.
 
-## Architecture
-
-```
-Flutter web / APK ──► Vercel (contracts/)
-   │                    ├─ static: landing page, /main/ game, /masuk/ Privy login
-   │                    └─ api/[...path].js: /auth/privy, /player, /game-actions, /health
-   │                         │
-   │                         ├─ Neon Postgres: sessions, player state, rate limits,
-   │                         │  idempotency keys, daily limits, audit log
-   │                         └─ backend signer ──► Sepolia contracts
-   │
-   └─────────────────► srv (always on): Socket.IO multiplayer + Pak Tani AI
-
 ## Repository layout
 
 - `taniin_flutter/` — Flutter app (game, HUD, state, Privy session handling, Android host).
