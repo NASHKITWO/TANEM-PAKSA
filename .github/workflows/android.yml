@@ -52,7 +52,13 @@ jobs:
             --build-name=1.0.${{ github.run_number }} \
             --build-number=${{ github.run_number }} \
             --dart-define=TANIIN_BUILD=${{ github.run_number }}
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Taniin-apk
-          path: taniin_flutter/build/app/outputs/flutter-apk/app-release.apk
+      - name: Publish to the apk-terbaru release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp build/app/outputs/flutter-apk/app-release.apk Taniin.apk
+          gh release view apk-terbaru >/dev/null 2>&1 || gh release create apk-terbaru \
+            --title "Taniin APK terbaru" \
+            --notes "APK Android terbaru, dibangun otomatis dari branch main." \
+            --latest
+          gh release upload apk-terbaru Taniin.apk --clobber
