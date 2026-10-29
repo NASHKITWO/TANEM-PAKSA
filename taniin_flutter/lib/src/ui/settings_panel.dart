@@ -2,8 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import '../app/app_update.dart';
-import '../chain/platform_bridge.dart';
+import '../app/app_update.dart' show appBuild;
 import '../state/farm_state.dart';
 import 'pixel_panel.dart';
 import 'pixel_art.dart';
@@ -25,8 +24,6 @@ class SettingsPanel extends StatefulWidget {
 }
 
 class _SettingsPanelState extends State<SettingsPanel> {
-  static const String _githubUrl = 'https://github.com/NASHKITWO';
-
   _SettingsSection _selectedSection = _SettingsSection.audio;
 
   FarmStateController get farmState => widget.farmState;
@@ -149,7 +146,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
     return [
       const _SettingsTitle(icon: Icons.info, title: 'Tentang'),
       const SizedBox(height: 24),
-      _AboutCard(onGithubTap: _openGithub),
+      const _AboutCard(),
       const SizedBox(height: 18),
       _AboutInfoRow(
         icon: Icons.person,
@@ -201,20 +198,6 @@ class _SettingsPanelState extends State<SettingsPanel> {
       return;
     }
     setState(() => _selectedSection = section);
-  }
-
-  Future<void> _openGithub() async {
-    farmState.playClick();
-    final opened = await PlatformBridge.openUrl(_githubUrl);
-    if (!mounted) {
-      return;
-    }
-    farmState.showMessage(
-      opened
-          ? 'Membuka GitHub NASHKITWO...'
-          : 'Tidak bisa membuka link GitHub.',
-      success: opened,
-    );
   }
 
   Future<void> _logoutWallet() async {
@@ -412,9 +395,7 @@ class _SettingsTitle extends StatelessWidget {
 }
 
 class _AboutCard extends StatelessWidget {
-  const _AboutCard({required this.onGithubTap});
-
-  final VoidCallback onGithubTap;
+  const _AboutCard();
 
   @override
   Widget build(BuildContext context) {
@@ -445,63 +426,7 @@ class _AboutCard extends StatelessWidget {
                 height: 1.18,
               ),
             ),
-            const SizedBox(height: 18),
-            _GithubButton(onTap: onGithubTap),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _GithubButton extends StatelessWidget {
-  const _GithubButton({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: onTap,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: const Color(0xFF273E32),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: const Color(0xFF86D68B), width: 3),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          child: Row(
-            children: [
-              const Icon(Icons.code, color: Color(0xFFFFF0CE), size: 30),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'GitHub',
-                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        color: const Color(0xFFA9EFA7),
-                        fontSize: 15,
-                      ),
-                    ),
-                    Text(
-                      'NASHKITWO',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: const Color(0xFFFFF0CE),
-                        fontSize: 24,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const Icon(Icons.open_in_new, color: Color(0xFFFFD51C), size: 28),
-            ],
-          ),
         ),
       ),
     );

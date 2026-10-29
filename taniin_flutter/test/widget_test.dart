@@ -194,7 +194,7 @@ void main() {
     expect(find.text('Keluar'), findsNothing);
   });
 
-  testWidgets('settings about tab shows creator and github link', (
+  testWidgets('settings about tab shows creator', (
     WidgetTester tester,
   ) async {
     SharedPreferences.setMockInitialValues(<String, Object>{});
@@ -214,7 +214,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('Muhammad Ikhsan'), findsWidgets);
-    expect(find.text('NASHKITWO'), findsOneWidget);
   });
 
   testWidgets('signed-in wallet panel shows the account and logs out', (

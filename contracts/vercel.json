@@ -113,16 +113,6 @@
       "source": "/main",
       "destination": "/main/",
       "permanent": true
-    },
-    {
-      "source": "/unduh",
-      "destination": "https://github.com/rhmatzeka/TaniinPlaytoEarn/releases/download/apk-terbaru/Taniin.apk",
-      "permanent": false
-    },
-    {
-      "source": "/unduh/Taniin.apk",
-      "destination": "https://github.com/rhmatzeka/TaniinPlaytoEarn/releases/download/apk-terbaru/Taniin.apk",
-      "permanent": false
     }
   ]
 }
